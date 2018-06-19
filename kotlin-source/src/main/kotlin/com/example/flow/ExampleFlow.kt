@@ -14,6 +14,8 @@ import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.ProgressTracker.Step
+import net.corda.node.services.statemachine.FlowSessionImpl
+import net.corda.node.services.statemachine.metered.Metered
 
 /**
  * This flow allows two parties (the [Initiator] and the [Acceptor]) to come to an agreement about the IOU encapsulated
@@ -29,6 +31,7 @@ import net.corda.core.utilities.ProgressTracker.Step
 object ExampleFlow {
     @InitiatingFlow
     @StartableByRPC
+    @Metered
     class Initiator(val iouValue: Int,
                     val otherParty: Party) : FlowLogic<SignedTransaction>() {
         /**
@@ -94,7 +97,10 @@ object ExampleFlow {
             // Stage 5.
             progressTracker.currentStep = FINALISING_TRANSACTION
             // Notarise and record the transaction in both parties' vaults.
-            return subFlow(FinalityFlow(fullySignedTx, FINALISING_TRANSACTION.childProgressTracker()))
+            val ledgerTx = subFlow(FinalityFlow(fullySignedTx, FINALISING_TRANSACTION.childProgressTracker()))
+            logger.error("OTHER PARTY TIME SPENT MANGING CHECKPOINTS: "
+                    + (otherPartyFlow as FlowSessionImpl).otherPartySpentOnCheckpointing)
+            return ledgerTx
         }
     }
 
