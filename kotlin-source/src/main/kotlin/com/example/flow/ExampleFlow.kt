@@ -15,6 +15,7 @@ import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.ProgressTracker.Step
 import net.corda.node.services.statemachine.FlowSessionImpl
+import net.corda.node.services.statemachine.FlowStateMachineImpl
 import net.corda.node.services.statemachine.metered.Metered
 
 /**
@@ -66,6 +67,8 @@ object ExampleFlow {
          */
         @Suspendable
         override fun call(): SignedTransaction {
+            val startTime = System.currentTimeMillis()
+
             // Obtain a reference to the notary we want to use.
             val notary = serviceHub.networkMapCache.notaryIdentities[0]
 
@@ -98,12 +101,39 @@ object ExampleFlow {
             progressTracker.currentStep = FINALISING_TRANSACTION
             // Notarise and record the transaction in both parties' vaults.
             val ledgerTx = subFlow(FinalityFlow(fullySignedTx, FINALISING_TRANSACTION.childProgressTracker()))
-            logger.error("OTHER PARTY TIME SPENT MANGING CHECKPOINTS: "
+
+            logger.info("OTHER PARTY CHECKPOINTING TIME: "
                     + (otherPartyFlow as FlowSessionImpl).otherPartySpentOnCheckpointing)
+            logger.info("THIS NODE CHECKPOINTING TIME: ${checkpointDurationMs()}")
+            logger.info("TOTAL FLOW TIME: " + (System.currentTimeMillis() - startTime))
+
             return ledgerTx
+        }
+
+
+        private fun checkpointDurationMs(): Long {
+            val timestamps = (stateMachine as FlowStateMachineImpl).checkpointTimestamps
+
+            fun Int.isEven(): Boolean {
+                return (this % 2) == 0
+            }
+
+            var checkpointDurationMs = 0L
+            for (i in 0..(timestamps.size - 1)) {
+                val epochMillis = timestamps[i].toEpochMilli()
+                if (i.isEven()) {
+                    checkpointDurationMs -= epochMillis
+                }
+                else {
+                    checkpointDurationMs += epochMillis
+                }
+            }
+
+            return checkpointDurationMs
         }
     }
 
+    @Metered
     @InitiatedBy(Initiator::class)
     class Acceptor(val otherPartyFlow: FlowSession) : FlowLogic<SignedTransaction>() {
         @Suspendable
